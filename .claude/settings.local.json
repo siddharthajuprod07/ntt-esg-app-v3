@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(npx create-next-app:*)",
+      "Bash(mv:*)",
+      "Bash(rmdir:*)",
+      "Bash(npx shadcn@latest init:*)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npx prisma:*)",
+      "Bash(npx shadcn@latest add:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker-compose exec app npx prisma:*)",
+      "Bash(docker-compose logs:*)",
+      "Bash(docker-compose restart:*)",
+      "Bash(docker-compose exec app rm:*)",
+      "Bash(docker-compose exec app npx:*)",
+      "Bash(docker-compose exec app find:*)",
+      "Bash(docker-compose exec:*)",
+      "Bash(docker-compose:*)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": []
+  }
+}

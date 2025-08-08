@@ -1,0 +1,183 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ORG_ADMIN
+  SURVEY_CREATOR
+  RESPONDENT
+  VIEWER
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String?
+  role          Role      @default(RESPONDENT)
+  organization  String?
+  department    String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLogin     DateTime?
+  isActive      Boolean   @default(true)
+  
+  surveys       Survey[]  @relation("CreatedSurveys")
+  responses     Response[]
+  
+  @@index([email])
+  @@index([role])
+}
+
+model Survey {
+  id            String    @id @default(cuid())
+  title         String
+  description   String?
+  category      String    // Environmental, Social, Governance, Custom
+  createdBy     User      @relation("CreatedSurveys", fields: [createdById], references: [id])
+  createdById   String
+  startDate     DateTime?
+  endDate       DateTime?
+  isActive      Boolean   @default(true)
+  isPublished   Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  questions     Question[]
+  responses     Response[]
+  
+  @@index([createdById])
+  @@index([category])
+  @@index([isActive, isPublished])
+}
+
+model Question {
+  id            String    @id @default(cuid())
+  survey        Survey    @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  surveyId      String
+  text          String
+  type          String    // multiple_choice, rating, yes_no, text
+  options       Json?     // For multiple choice options
+  required      Boolean   @default(true)
+  order         Int
+  weight        Float     @default(1.0)
+  category      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  answers       Answer[]
+  
+  @@index([surveyId])
+  @@unique([surveyId, order])
+}
+
+model Response {
+  id            String    @id @default(cuid())
+  survey        Survey    @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  surveyId      String
+  user          User      @relation(fields: [userId], references: [id])
+  userId        String
+  completedAt   DateTime?
+  score         Float?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  answers       Answer[]
+  
+  @@index([surveyId])
+  @@index([userId])
+  @@unique([surveyId, userId])
+}
+
+model Answer {
+  id            String    @id @default(cuid())
+  response      Response  @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  responseId    String
+  question      Question  @relation(fields: [questionId], references: [id])
+  questionId    String
+  value         String?   // The actual answer value
+  score         Float?    // Calculated score for this answer
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@index([responseId])
+  @@index([questionId])
+  @@unique([responseId, questionId])
+}
+
+model Pillar {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  weightage   Float    @default(1.0)
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  levers      Lever[]
+  
+  @@index([name])
+  @@index([isActive])
+}
+
+model Lever {
+  id          String   @id @default(cuid())
+  name        String
+  weightage   Float    @default(1.0)
+  description String?
+  isActive    Boolean  @default(true)
+  pillar      Pillar   @relation(fields: [pillarId], references: [id], onDelete: Cascade)
+  pillarId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  variables   Variable[]
+  
+  @@index([pillarId])
+  @@index([name])
+  @@index([isActive])
+  @@unique([pillarId, name])
+}
+
+model Variable {
+  id          String   @id @default(cuid())
+  name        String
+  weightage   Float    @default(1.0)
+  description String?
+  isActive    Boolean  @default(true)
+  lever       Lever    @relation(fields: [leverId], references: [id], onDelete: Cascade)
+  leverId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  questions   VariableQuestion[]
+  
+  @@index([leverId])
+  @@index([name])
+  @@index([isActive])
+  @@unique([leverId, name])
+}
+
+model VariableQuestion {
+  id            String    @id @default(cuid())
+  text          String
+  type          String    // multiple_choice, rating, yes_no, text
+  options       Json?     // For multiple choice options
+  required      Boolean   @default(true)
+  weightage     Float     @default(1.0)
+  order         Int
+  variable      Variable  @relation(fields: [variableId], references: [id], onDelete: Cascade)
+  variableId    String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@index([variableId])
+  @@index([type])
+  @@unique([variableId, order])
+}
