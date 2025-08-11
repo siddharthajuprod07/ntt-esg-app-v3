@@ -20,8 +20,10 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const resolvedParams = await params
+
     const variable = await prisma.variable.findUnique({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       include: {
         lever: {
           select: {
@@ -77,9 +79,11 @@ export async function PUT(
     const body = await request.json()
     const validatedData = variableUpdateSchema.parse(body)
 
+    const resolvedParams = await params
+
     // Check if variable exists
     const existingVariable = await prisma.variable.findUnique({
-      where: { id: params.id }
+      where: { id: resolvedParams.id }
     })
 
     if (!existingVariable) {
@@ -104,7 +108,7 @@ export async function PUT(
     }
 
     const variable = await prisma.variable.update({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       data: validatedData,
       include: {
         lever: {
@@ -156,12 +160,37 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    // Check if variable exists
+    const resolvedParams = await params
+    const { searchParams } = new URL(request.url)
+    const forceHardDelete = searchParams.get('force') === 'true'
+
+    // Check if variable exists with detailed information
     const existingVariable = await prisma.variable.findUnique({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       include: {
+        children: {
+          select: {
+            id: true,
+            name: true,
+            isActive: true,
+            _count: {
+              select: { questions: true }
+            }
+          }
+        },
+        questions: {
+          select: {
+            id: true,
+            text: true,
+            type: true,
+            required: true
+          }
+        },
         _count: {
-          select: { questions: true }
+          select: { 
+            questions: true,
+            children: true
+          }
         }
       }
     })
@@ -170,21 +199,95 @@ export async function DELETE(
       return NextResponse.json({ error: "Variable not found" }, { status: 404 })
     }
 
-    // Check if variable has any questions
-    if (existingVariable._count.questions > 0) {
-      return NextResponse.json(
-        { error: "Cannot delete variable with existing questions. Delete questions first." },
-        { status: 400 }
-      )
+    // If variable is active, do soft delete (first click)
+    if (existingVariable.isActive) {
+      const updatedVariable = await prisma.variable.update({
+        where: { id: resolvedParams.id },
+        data: { isActive: false }
+      })
+
+      return NextResponse.json({ 
+        message: "Variable deactivated successfully",
+        type: "soft_delete",
+        variable: updatedVariable
+      })
     }
 
-    // Soft delete by setting isActive to false
-    const variable = await prisma.variable.update({
-      where: { id: params.id },
-      data: { isActive: false }
-    })
+    // If variable is already inactive and force=true, do hard delete (second click)
+    if (!existingVariable.isActive && forceHardDelete) {
+      // Note: Since VariableQuestions don't directly relate to Answers in our current schema,
+      // we can't count affected responses. This would need to be implemented if we had
+      // a relationship between survey responses and variable questions.
+      const responseCount = 0
 
-    return NextResponse.json({ message: "Variable deleted successfully" })
+      // Start transaction for hard delete
+      await prisma.$transaction(async (tx) => {
+        // Note: VariableQuestions don't have direct Answer relationships in our schema
+        // Answers relate to Survey Questions, not VariableQuestions
+        // If there were answers to delete, we would need to find them through a different relationship
+        
+        // Delete all questions belonging to this variable
+        await tx.variableQuestion.deleteMany({
+          where: {
+            variableId: resolvedParams.id
+          }
+        })
+
+        // Update children to point to this variable's parent (or remove parent)
+        await tx.variable.updateMany({
+          where: {
+            parentId: resolvedParams.id
+          },
+          data: {
+            parentId: existingVariable.parentId,
+            level: existingVariable.parentId ? existingVariable.level : 0,
+            // Note: path would need to be recalculated, but this is complex in raw SQL
+          }
+        })
+
+        // Finally delete the variable itself
+        await tx.variable.delete({
+          where: {
+            id: resolvedParams.id
+          }
+        })
+      })
+
+      return NextResponse.json({ 
+        message: "Variable permanently deleted",
+        type: "hard_delete",
+        deletedQuestions: existingVariable._count.questions,
+        affectedResponses: responseCount,
+        childrenReassigned: existingVariable._count.children
+      })
+    }
+
+    // If variable is inactive but no force flag, return deletion preview
+    if (!existingVariable.isActive && !forceHardDelete) {
+      // Note: Since VariableQuestions don't directly relate to Answers in our current schema,
+      // we can't count affected responses. This would need to be implemented if we had
+      // a relationship between survey responses and variable questions.
+      const responseCount = 0
+
+      return NextResponse.json({
+        message: "Variable is ready for permanent deletion",
+        type: "delete_preview",
+        preview: {
+          variable: {
+            id: existingVariable.id,
+            name: existingVariable.name,
+            level: existingVariable.level
+          },
+          questionsToDelete: existingVariable.questions,
+          childrenToReassign: existingVariable.children,
+          affectedResponseCount: responseCount,
+          totalQuestions: existingVariable._count.questions,
+          totalChildren: existingVariable._count.children
+        }
+      })
+    }
+
+    return NextResponse.json({ error: "Invalid delete operation" }, { status: 400 })
   } catch (error) {
     console.error("Error deleting variable:", error)
     return NextResponse.json(

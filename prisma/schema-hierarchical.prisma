@@ -145,6 +145,7 @@ model Lever {
   @@unique([pillarId, name])
 }
 
+// Updated Variable model with hierarchical support
 model Variable {
   id          String   @id @default(cuid())
   name        String

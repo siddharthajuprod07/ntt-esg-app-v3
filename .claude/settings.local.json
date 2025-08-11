@@ -21,7 +21,13 @@
       "Bash(docker-compose exec:*)",
       "Bash(docker-compose:*)",
       "Bash(git remote add:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(cp:*)",
+      "Bash(curl:*)",
+      "Bash(docker system prune:*)",
+      "Bash(timeout 10s docker-compose logs -f app)",
+      "Bash(timeout 15s docker-compose logs -f app)"
     ],
     "deny": []
   }

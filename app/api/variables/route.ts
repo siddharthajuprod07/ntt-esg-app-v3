@@ -5,9 +5,17 @@ import { z } from "zod"
 
 const variableSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
-  leverId: z.string().min(1, "Lever ID is required"),
+  leverId: z.string().optional(),
+  parentId: z.string().optional(),
   weightage: z.number().min(0, "Weightage must be positive").default(1.0),
   description: z.string().optional(),
+  aggregationType: z.string().optional(),
+  level: z.number().optional(),
+  path: z.string().optional(),
+  order: z.number().optional(),
+}).refine((data) => data.leverId || data.parentId, {
+  message: "Either leverId or parentId is required",
+  path: ["leverId"],
 })
 
 export async function GET(request: Request) {
@@ -41,11 +49,33 @@ export async function GET(request: Request) {
             }
           }
         },
+        parent: {
+          select: {
+            id: true,
+            name: true,
+            lever: {
+              select: {
+                id: true,
+                name: true,
+                pillar: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                }
+              }
+            }
+          }
+        },
         _count: {
           select: { questions: true }
         }
       },
-      orderBy: { name: 'asc' }
+      orderBy: [
+        { level: 'asc' },
+        { path: 'asc' },
+        { name: 'asc' }
+      ]
     })
 
     return NextResponse.json(variables)
@@ -73,35 +103,53 @@ export async function POST(request: Request) {
     const body = await request.json()
     const validatedData = variableSchema.parse(body)
 
-    // Check if lever exists
-    const lever = await prisma.lever.findUnique({
-      where: { id: validatedData.leverId }
-    })
+    // Check if lever exists (for root variables) or parent exists (for child variables)
+    if (validatedData.leverId) {
+      const lever = await prisma.lever.findUnique({
+        where: { id: validatedData.leverId }
+      })
 
-    if (!lever) {
-      return NextResponse.json(
-        { error: "Lever not found" },
-        { status: 400 }
-      )
+      if (!lever) {
+        return NextResponse.json(
+          { error: "Lever not found" },
+          { status: 400 }
+        )
+      }
     }
 
-    // Check if variable name already exists within this lever
-    const existingVariable = await prisma.variable.findFirst({
-      where: {
-        name: validatedData.name,
-        leverId: validatedData.leverId
-      }
-    })
+    if (validatedData.parentId) {
+      const parent = await prisma.variable.findUnique({
+        where: { id: validatedData.parentId }
+      })
 
-    if (existingVariable) {
-      return NextResponse.json(
-        { error: "A variable with this name already exists in this lever" },
-        { status: 400 }
-      )
+      if (!parent) {
+        return NextResponse.json(
+          { error: "Parent variable not found" },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Calculate level and path if not provided
+    let level = validatedData.level || 0
+    let path = validatedData.path || validatedData.name
+
+    if (validatedData.parentId) {
+      const parent = await prisma.variable.findUnique({
+        where: { id: validatedData.parentId }
+      })
+      if (parent) {
+        level = parent.level + 1
+        path = parent.path ? `${parent.path}/${validatedData.name}` : validatedData.name
+      }
     }
 
     const variable = await prisma.variable.create({
-      data: validatedData,
+      data: {
+        ...validatedData,
+        level,
+        path,
+      },
       include: {
         lever: {
           select: {
@@ -111,6 +159,24 @@ export async function POST(request: Request) {
               select: {
                 id: true,
                 name: true
+              }
+            }
+          }
+        },
+        parent: {
+          select: {
+            id: true,
+            name: true,
+            lever: {
+              select: {
+                id: true,
+                name: true,
+                pillar: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                }
               }
             }
           }

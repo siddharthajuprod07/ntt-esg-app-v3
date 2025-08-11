@@ -151,58 +151,29 @@ model Variable {
   weightage   Float    @default(1.0)
   description String?
   isActive    Boolean  @default(true)
-  
-  // Hierarchical relationship - self-referential
-  parentId    String?
-  parent      Variable?  @relation("VariableHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
-  children    Variable[] @relation("VariableHierarchy")
-  
-  // Level in hierarchy (0 = root under lever, 1 = first level child, etc.)
-  level       Int       @default(0)
-  
-  // Store the full path for efficient querying (e.g., "root/child1/child2")
-  path        String?
-  
-  // Order among siblings
-  order       Int       @default(0)
-  
-  // Either belongs to a lever (root variables) OR has a parent variable
-  leverId     String?
-  lever       Lever?    @relation(fields: [leverId], references: [id], onDelete: Cascade)
-  
-  // Questions can be attached at any level
-  questions   VariableQuestion[]
-  
-  // Aggregation settings for child variables
-  aggregationType String?  @default("SUM") // SUM, AVERAGE, WEIGHTED_AVERAGE, MAX, MIN
-  
+  lever       Lever    @relation(fields: [leverId], references: [id], onDelete: Cascade)
+  leverId     String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
-  @@index([parentId])
+  questions   VariableQuestion[]
+  
   @@index([leverId])
-  @@index([path])
-  @@index([level])
-  @@index([order])
   @@index([name])
   @@index([isActive])
+  @@unique([leverId, name])
 }
 
 model VariableQuestion {
   id            String    @id @default(cuid())
   text          String
-  type          String    // multiple_choice, rating, yes_no, text, calculated
+  type          String    // multiple_choice, rating, yes_no, text
   options       Json?     // For multiple choice options
   required      Boolean   @default(true)
   weightage     Float     @default(1.0)
   order         Int
-  
-  // Formula for calculated questions (can reference other questions)
-  formula       String?   
-  
   variable      Variable  @relation(fields: [variableId], references: [id], onDelete: Cascade)
   variableId    String
-  
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   

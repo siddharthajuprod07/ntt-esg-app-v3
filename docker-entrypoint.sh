@@ -12,9 +12,9 @@ done
 
 echo "Database is ready!"
 
-# Run Prisma migrations
+# Run Prisma migrations (preferred method for production)
 echo "Running Prisma migrations..."
-npx prisma migrate deploy || true
+npx prisma migrate deploy
 
 # Generate Prisma client
 echo "Generating Prisma client..."

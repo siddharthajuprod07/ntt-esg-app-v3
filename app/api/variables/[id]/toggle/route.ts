@@ -25,9 +25,12 @@ export async function PATCH(
     const body = await request.json()
     const { isActive } = toggleSchema.parse(body)
 
-    // Check if variable exists
+    // Await params to fix Next.js 15 issue
+    const resolvedParams = await params
+
+    // Check if variable exists - include both lever and parent for hierarchical support
     const existingVariable = await prisma.variable.findUnique({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       include: {
         lever: {
           select: {
@@ -35,6 +38,21 @@ export async function PATCH(
             pillar: {
               select: {
                 isActive: true
+              }
+            }
+          }
+        },
+        parent: {
+          select: {
+            isActive: true,
+            lever: {
+              select: {
+                isActive: true,
+                pillar: {
+                  select: {
+                    isActive: true
+                  }
+                }
               }
             }
           }
@@ -46,18 +64,40 @@ export async function PATCH(
       return NextResponse.json({ error: "Variable not found" }, { status: 404 })
     }
 
-    // Cannot activate variable if parent lever or pillar is inactive
-    if (isActive && (!existingVariable.lever.isActive || !existingVariable.lever.pillar.isActive)) {
-      return NextResponse.json(
-        { error: "Cannot activate variable when parent lever or pillar is inactive" },
-        { status: 400 }
-      )
+    // Check parent hierarchy before activation
+    if (isActive) {
+      // For root variables (have lever), check lever and pillar
+      if (existingVariable.lever) {
+        if (!existingVariable.lever.isActive || !existingVariable.lever.pillar.isActive) {
+          return NextResponse.json(
+            { error: "Cannot activate variable when parent lever or pillar is inactive" },
+            { status: 400 }
+          )
+        }
+      }
+      // For child variables (have parent), check parent and its hierarchy
+      else if (existingVariable.parent) {
+        if (!existingVariable.parent.isActive) {
+          return NextResponse.json(
+            { error: "Cannot activate variable when parent variable is inactive" },
+            { status: 400 }
+          )
+        }
+        // Check the parent's lever/pillar if it exists
+        if (existingVariable.parent.lever) {
+          if (!existingVariable.parent.lever.isActive || !existingVariable.parent.lever.pillar.isActive) {
+            return NextResponse.json(
+              { error: "Cannot activate variable when ancestor lever or pillar is inactive" },
+              { status: 400 }
+            )
+          }
+        }
+      }
     }
 
-    // Note: Questions don't have isActive field yet, so no need to cascade deactivation
-
+    // Update the variable
     const variable = await prisma.variable.update({
-      where: { id: params.id },
+      where: { id: resolvedParams.id },
       data: { isActive },
       include: {
         lever: {
@@ -68,6 +108,24 @@ export async function PATCH(
               select: {
                 id: true,
                 name: true
+              }
+            }
+          }
+        },
+        parent: {
+          select: {
+            id: true,
+            name: true,
+            lever: {
+              select: {
+                id: true,
+                name: true,
+                pillar: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                }
               }
             }
           }
