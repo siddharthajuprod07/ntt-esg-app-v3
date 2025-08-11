@@ -38,7 +38,16 @@ ENV NEXT_TELEMETRY_DISABLED 1
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+# Install Prisma CLI and ts-node for migrations and seeding
+RUN npm install -g prisma ts-node
+
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/package.json ./package.json
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Set the correct permission for prerender cache
 RUN mkdir .next
@@ -48,6 +57,7 @@ RUN chown nextjs:nodejs .next
 # https://nextjs.org/docs/advanced-features/output-file-tracing
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 
 USER nextjs
 
@@ -56,6 +66,9 @@ EXPOSE 3000
 ENV PORT 3000
 # set hostname to localhost
 ENV HOSTNAME "0.0.0.0"
+
+# Use the entrypoint script for production too
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # server.js is created by next build from the standalone output
 # https://nextjs.org/docs/pages/api-reference/next-config-js/output
@@ -71,14 +84,24 @@ RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json* ./
 RUN npm ci
 
+# Install ts-node for database seeding
+RUN npm install -g ts-node
+
 # Copy source code
 COPY . .
+
+# Copy and make entrypoint script executable
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Generate Prisma Client
 RUN npx prisma generate
 
 # Expose port
 EXPOSE 3000
+
+# Use the entrypoint script
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Start the development server
 CMD ["npm", "run", "dev"]

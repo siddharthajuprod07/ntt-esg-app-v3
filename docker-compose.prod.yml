@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: esg-postgres-prod
+    environment:
+      POSTGRES_DB: esg_survey_db
+      POSTGRES_USER: esg_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-esg_password123}
+      POSTGRES_HOST_AUTH_METHOD: md5
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    networks:
+      - esg-network-prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U esg_user -d esg_survey_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Next.js Application - Production
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: esg-app-prod
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://esg_user:${DB_PASSWORD:-esg_password123}@postgres:5432/esg_survey_db?schema=public
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-your-super-secret-key-change-in-production-environment}
+    ports:
+      - "3000:3000"
+    networks:
+      - esg-network-prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data_prod:
+    driver: local
+
+networks:
+  esg-network-prod:
+    driver: bridge

@@ -62,13 +62,13 @@ services:
       - .:/app
       - /app/node_modules
       - /app/.next
+      - ./prisma:/app/prisma
     networks:
       - esg-network
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-    command: npm run dev
 
 volumes:
   postgres_data:
