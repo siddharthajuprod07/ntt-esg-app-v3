@@ -1,0 +1,19 @@
+# Ensure shell scripts use LF line endings even on Windows
+*.sh text eol=lf
+docker-entrypoint.sh text eol=lf
+
+# Ensure Dockerfile uses LF line endings
+Dockerfile text eol=lf
+
+# Handle other text files
+*.md text
+*.txt text
+*.yml text
+*.yaml text
+*.json text
+*.js text
+*.jsx text
+*.ts text
+*.tsx text
+*.css text
+*.html text
