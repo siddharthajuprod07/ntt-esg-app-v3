@@ -3,6 +3,49 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { z } from "zod"
 
+// Helper function to get lever and pillar for a variable (including hierarchical)
+async function getVariableHierarchy(variableId: string) {
+  let currentVariable = await prisma.variable.findUnique({
+    where: { id: variableId },
+    include: {
+      lever: {
+        include: {
+          pillar: true
+        }
+      }
+    }
+  });
+
+  // If the variable has a lever directly, return it
+  if (currentVariable?.lever) {
+    return {
+      lever: currentVariable.lever,
+      pillar: currentVariable.lever.pillar
+    };
+  }
+
+  // Otherwise, traverse up the hierarchy to find the root variable with a lever
+  let depth = 0;
+  while (currentVariable && !currentVariable.lever && currentVariable.parentId && depth < 10) {
+    currentVariable = await prisma.variable.findUnique({
+      where: { id: currentVariable.parentId },
+      include: {
+        lever: {
+          include: {
+            pillar: true
+          }
+        }
+      }
+    });
+    depth++;
+  }
+
+  return {
+    lever: currentVariable?.lever || null,
+    pillar: currentVariable?.lever?.pillar || null
+  };
+}
+
 const variableSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   leverId: z.string().optional(),
@@ -78,7 +121,23 @@ export async function GET(request: Request) {
       ]
     })
 
-    return NextResponse.json(variables)
+    // Enrich variables with lever and pillar information from hierarchy
+    const enrichedVariables = await Promise.all(
+      variables.map(async (variable) => {
+        const hierarchy = await getVariableHierarchy(variable.id);
+        
+        return {
+          ...variable,
+          lever: hierarchy.lever || variable.lever,
+          parent: {
+            ...variable.parent,
+            lever: variable.parent?.lever || hierarchy.lever
+          }
+        };
+      })
+    );
+
+    return NextResponse.json(enrichedVariables)
   } catch (error) {
     console.error("Error fetching variables:", error)
     return NextResponse.json(
