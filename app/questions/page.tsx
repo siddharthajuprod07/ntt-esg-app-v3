@@ -11,7 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
-import { Plus, Upload, Edit, Trash2, Download, FileQuestion, Users, HelpCircle } from 'lucide-react';
+import { Plus, Upload, Edit, Trash2, Download, FileQuestion, Users, HelpCircle, Filter, X } from 'lucide-react';
 
 interface QuestionOption {
   text: string;
@@ -70,6 +70,16 @@ export default function QuestionsPage() {
   const [selectedVariable, setSelectedVariable] = useState<string>('');
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [questionToDelete, setQuestionToDelete] = useState<string | null>(null);
+  
+  // Filter state
+  const [filters, setFilters] = useState({
+    variable: 'all',
+    type: 'all',
+    required: 'all',
+    requiresEvidence: 'all',
+    search: ''
+  });
+  const [showFilters, setShowFilters] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -96,6 +106,16 @@ export default function QuestionsPage() {
       const response = await fetch('/api/questions');
       if (response.ok) {
         const data = await response.json();
+        console.log('Questions data:', data);
+        // Debug log for Scope questions
+        data.forEach((q: any) => {
+          if (q.variable?.name?.includes('Scope')) {
+            console.log(`Question for ${q.variable.name}:`, {
+              lever: q.variable.lever,
+              pillar: q.variable.pillar
+            });
+          }
+        });
         setQuestions(data);
       }
     } catch (error) {
@@ -426,15 +446,69 @@ export default function QuestionsPage() {
     setIsCreateDialogOpen(true);
   };
 
-  // Group questions by variable with full hierarchy info
-  const groupedQuestions = questions.reduce((acc, question) => {
+  // Clear all filters
+  const clearAllFilters = () => {
+    setFilters({
+      variable: 'all',
+      type: 'all',
+      required: 'all',
+      requiresEvidence: 'all',
+      search: ''
+    });
+  };
+
+  // Filter questions based on current filters
+  const filteredQuestions = questions.filter(question => {
+    // Search filter
+    if (filters.search && !question.text.toLowerCase().includes(filters.search.toLowerCase()) &&
+        !question.variable?.name.toLowerCase().includes(filters.search.toLowerCase())) {
+      return false;
+    }
+    
+    // Variable filter
+    if (filters.variable !== 'all' && question.variableId !== filters.variable) {
+      return false;
+    }
+    
+    // Type filter
+    if (filters.type !== 'all' && question.type !== filters.type) {
+      return false;
+    }
+    
+    // Required filter
+    if (filters.required !== 'all') {
+      if (filters.required === 'required' && !question.required) return false;
+      if (filters.required === 'optional' && question.required) return false;
+    }
+    
+    // Evidence filter
+    if (filters.requiresEvidence !== 'all') {
+      if (filters.requiresEvidence === 'yes' && !question.requiresEvidence) return false;
+      if (filters.requiresEvidence === 'no' && question.requiresEvidence) return false;
+    }
+    
+    return true;
+  });
+
+  // Group filtered questions by variable with full hierarchy info
+  const groupedQuestions = filteredQuestions.reduce((acc, question) => {
     const variable = question.variable;
     const key = variable?.id || 'unassigned';
     if (!acc[key]) {
+      // Debug logging for Scope variables
+      if (variable?.name?.includes('Scope')) {
+        console.log(`Grouping ${variable.name}:`, {
+          lever: variable?.lever,
+          leverName: variable?.lever?.name,
+          pillar: variable?.pillar,
+          pillarName: variable?.pillar?.name
+        });
+      }
+      
       acc[key] = {
         variableName: variable?.name || 'Unassigned',
         leverName: variable?.lever?.name || null,
-        pillarName: variable?.lever?.pillar?.name || variable?.pillar?.name || null,
+        pillarName: variable?.pillar?.name || null,
         questions: []
       };
     }
@@ -741,6 +815,136 @@ export default function QuestionsPage() {
         </div>
       </div>
 
+      {/* Filters Section */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2"
+            >
+              <Filter className="h-4 w-4" />
+              Filters
+              {Object.entries(filters).some(([key, value]) => key !== 'search' ? value !== 'all' : value !== '') && (
+                <Badge variant="secondary" className="ml-1">
+                  {Object.entries(filters).filter(([key, value]) => key !== 'search' ? value !== 'all' : value !== '').length}
+                </Badge>
+              )}
+            </Button>
+            {Object.entries(filters).some(([key, value]) => key !== 'search' ? value !== 'all' : value !== '') && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearAllFilters}
+                className="flex items-center gap-1 text-gray-500"
+              >
+                <X className="h-3 w-3" />
+                Clear all
+              </Button>
+            )}
+          </div>
+          <div className="text-sm text-gray-500">
+            {filteredQuestions.length} of {questions.length} questions
+          </div>
+        </div>
+
+        {showFilters && (
+          <Card className="p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              {/* Search */}
+              <div>
+                <Label htmlFor="search-filter" className="text-sm font-medium">Search</Label>
+                <Input
+                  id="search-filter"
+                  placeholder="Search questions..."
+                  value={filters.search}
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                  className="mt-1"
+                />
+              </div>
+
+              {/* Variable Filter */}
+              <div>
+                <Label htmlFor="variable-filter" className="text-sm font-medium">Variable</Label>
+                <Select
+                  value={filters.variable}
+                  onValueChange={(value) => setFilters({ ...filters, variable: value })}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="All variables" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All variables</SelectItem>
+                    {variables.map(variable => (
+                      <SelectItem key={variable.id} value={variable.id}>
+                        {variable.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Type Filter */}
+              <div>
+                <Label htmlFor="type-filter" className="text-sm font-medium">Type</Label>
+                <Select
+                  value={filters.type}
+                  onValueChange={(value) => setFilters({ ...filters, type: value })}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="All types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All types</SelectItem>
+                    <SelectItem value="single_select">Single Select</SelectItem>
+                    <SelectItem value="multi_select">Multi Select</SelectItem>
+                    <SelectItem value="text">Text</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Required Filter */}
+              <div>
+                <Label htmlFor="required-filter" className="text-sm font-medium">Required</Label>
+                <Select
+                  value={filters.required}
+                  onValueChange={(value) => setFilters({ ...filters, required: value })}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="required">Required only</SelectItem>
+                    <SelectItem value="optional">Optional only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Evidence Filter */}
+              <div>
+                <Label htmlFor="evidence-filter" className="text-sm font-medium">Evidence Required</Label>
+                <Select
+                  value={filters.requiresEvidence}
+                  onValueChange={(value) => setFilters({ ...filters, requiresEvidence: value })}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="yes">Requires evidence</SelectItem>
+                    <SelectItem value="no">No evidence required</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </Card>
+        )}
+      </div>
+
       {loading ? (
         <div className="text-center py-8">Loading questions...</div>
       ) : (
@@ -822,6 +1026,40 @@ export default function QuestionsPage() {
               </CardContent>
             </Card>
           ))}
+          {Object.entries(groupedQuestions).length === 0 && !loading && (
+            <Card className="text-center py-12">
+              <CardContent>
+                <FileQuestion className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">
+                  {Object.entries(filters).some(([key, value]) => key !== 'search' ? value !== 'all' : value !== '')
+                    ? 'No questions match your filters'
+                    : 'No questions yet'
+                  }
+                </h3>
+                <p className="text-gray-600 mb-4">
+                  {Object.entries(filters).some(([key, value]) => key !== 'search' ? value !== 'all' : value !== '')
+                    ? 'Try adjusting your filters or clearing them to see more results.'
+                    : 'Create your first question to get started with ESG assessments.'
+                  }
+                </p>
+                {Object.entries(filters).some(([key, value]) => key !== 'search' ? value !== 'all' : value !== '') ? (
+                  <Button onClick={clearAllFilters} variant="outline">
+                    <X className="h-4 w-4 mr-2" />
+                    Clear all filters
+                  </Button>
+                ) : variables.length > 0 ? (
+                  <Button onClick={() => setIsCreateDialogOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create Your First Question
+                  </Button>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    You need to create variables first before adding questions.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
