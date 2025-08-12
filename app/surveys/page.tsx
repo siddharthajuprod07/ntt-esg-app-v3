@@ -29,6 +29,8 @@ interface Survey {
   _count: {
     questions: number;
     responses: number;
+    completedResponses?: number;
+    draftResponses?: number;
   };
 }
 
@@ -177,8 +179,11 @@ export default function SurveysPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {surveys.reduce((total, survey) => total + survey._count.responses, 0)}
+              {surveys.reduce((total, survey) => total + (survey._count.completedResponses ?? survey._count.responses), 0)}
             </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              +{surveys.reduce((total, survey) => total + (survey._count.draftResponses ?? 0), 0)} drafts
+            </p>
           </CardContent>
         </Card>
 
@@ -231,7 +236,9 @@ export default function SurveysPage() {
                     </span>
                     <span className="flex items-center gap-1">
                       <Users className="h-3 w-3" />
-                      {survey._count.responses} responses
+                      {survey._count.completedResponses ?? survey._count.responses} completed
+                      {survey._count.draftResponses && survey._count.draftResponses > 0 && 
+                        ` • ${survey._count.draftResponses} drafts`}
                     </span>
                     <span className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />

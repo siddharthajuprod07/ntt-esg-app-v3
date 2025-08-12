@@ -2,6 +2,61 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session = await auth();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const responses = await prisma.response.findMany({
+      where: { 
+        surveyId: params.id
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        answers: {
+          include: {
+            question: {
+              select: {
+                id: true,
+                text: true,
+                type: true,
+                order: true
+              }
+            }
+          },
+          orderBy: {
+            question: {
+              order: 'asc'
+            }
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    return NextResponse.json(responses);
+  } catch (error) {
+    console.error('Error fetching responses:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch responses' },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -12,18 +67,21 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const surveyId = params.id;
     const body = await request.json();
-    const { answers } = body; // Array of { questionId, value }
+    const { answers, evidences = {}, isDraft = false } = body;
 
-    // Check if survey exists and is published
+    // Validate survey exists and is published
     const survey = await prisma.survey.findUnique({
-      where: { id: surveyId },
+      where: { 
+        id: params.id,
+        isActive: true
+      },
       include: {
         questions: {
           include: {
             variableQuestion: true
-          }
+          },
+          orderBy: { order: 'asc' }
         }
       }
     });
@@ -36,177 +94,158 @@ export async function POST(
       return NextResponse.json({ error: 'Survey is not published' }, { status: 400 });
     }
 
-    // Check if user has already responded (unless anonymous responses are allowed)
-    if (!survey.allowAnonymous) {
-      const existingResponse = await prisma.response.findUnique({
-        where: {
-          surveyId_userId: {
-            surveyId,
-            userId: session.user.id
+    // Check if survey is within date range
+    const now = new Date();
+    if (survey.startDate && survey.startDate > now) {
+      return NextResponse.json({ error: 'Survey has not started yet' }, { status: 400 });
+    }
+    if (survey.endDate && survey.endDate < now) {
+      return NextResponse.json({ error: 'Survey has ended' }, { status: 400 });
+    }
+
+    // Check if user already has a response
+    let existingResponse = await prisma.response.findUnique({
+      where: {
+        surveyId_userId: {
+          surveyId: params.id,
+          userId: session.user.id
+        }
+      }
+    });
+
+    // If this is a final submission and response already completed, prevent duplicate
+    if (!isDraft && existingResponse?.completedAt) {
+      return NextResponse.json({ error: 'You have already completed this survey' }, { status: 400 });
+    }
+
+    // Calculate total score if not a draft
+    let totalScore = null;
+    if (!isDraft) {
+      totalScore = 0;
+      for (const question of survey.questions) {
+        const answerValue = answers[question.id];
+        if (answerValue && question.options) {
+          try {
+            const options = Array.isArray(question.options) ? question.options : JSON.parse(question.options as string);
+            if (question.type === 'single_select') {
+              const selectedOption = options.find((opt: any) => opt.text === answerValue);
+              if (selectedOption) {
+                totalScore += (selectedOption.absoluteScore || 0) * question.weight;
+              }
+            } else if (question.type === 'multi_select') {
+              const selectedValues = answerValue.split(',').map((v: string) => v.trim());
+              for (const value of selectedValues) {
+                const selectedOption = options.find((opt: any) => opt.text === value);
+                if (selectedOption) {
+                  totalScore += (selectedOption.absoluteScore || 0) * question.weight;
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error parsing question options:', error);
           }
         }
-      });
-
-      if (existingResponse) {
-        return NextResponse.json({ error: 'You have already responded to this survey' }, { status: 400 });
       }
     }
 
-    // Check max responses limit
-    if (survey.maxResponses) {
-      const responseCount = await prisma.response.count({
-        where: { surveyId }
-      });
+    // Create or update response
+    const responseData = {
+      surveyId: params.id,
+      userId: session.user.id,
+      completedAt: isDraft ? null : new Date(),
+      score: totalScore
+    };
 
-      if (responseCount >= survey.maxResponses) {
-        return NextResponse.json({ error: 'Survey has reached maximum response limit' }, { status: 400 });
-      }
+    let response;
+    if (existingResponse) {
+      response = await prisma.response.update({
+        where: { id: existingResponse.id },
+        data: responseData
+      });
+    } else {
+      response = await prisma.response.create({
+        data: responseData
+      });
     }
 
-    // Calculate total score
-    let totalScore = 0;
-    let totalWeight = 0;
+    // Delete existing answers if updating
+    if (existingResponse) {
+      await prisma.answer.deleteMany({
+        where: { responseId: response.id }
+      });
+    }
 
-    const answersWithScores = answers.map((answer: any) => {
-      const question = survey.questions.find(q => q.id === answer.questionId);
-      if (!question) {
-        throw new Error(`Question not found: ${answer.questionId}`);
-      }
-
-      let score = 0;
-      if (question.type !== 'text' && question.options) {
-        const options = question.options as any[];
-        if (question.type === 'single_select') {
-          const selectedOption = options.find(opt => opt.text === answer.value);
-          score = selectedOption ? selectedOption.absoluteScore : 0;
-        } else if (question.type === 'multi_select') {
-          const selectedValues = Array.isArray(answer.value) ? answer.value : [answer.value];
-          score = selectedValues.reduce((sum: number, value: string) => {
-            const option = options.find(opt => opt.text === value);
-            return sum + (option ? option.absoluteScore : 0);
-          }, 0);
+    // Create answer records
+    const answerData = [];
+    for (const question of survey.questions) {
+      const answerValue = answers[question.id];
+      if (answerValue !== undefined && answerValue !== '') {
+        let score = null;
+        
+        // Calculate score for this answer if not a draft
+        if (!isDraft && question.options) {
+          try {
+            const options = Array.isArray(question.options) ? question.options : JSON.parse(question.options as string);
+            if (question.type === 'single_select') {
+              const selectedOption = options.find((opt: any) => opt.text === answerValue);
+              if (selectedOption) {
+                score = (selectedOption.absoluteScore || 0) * question.weight;
+              }
+            } else if (question.type === 'multi_select') {
+              score = 0;
+              const selectedValues = answerValue.split(',').map((v: string) => v.trim());
+              for (const value of selectedValues) {
+                const selectedOption = options.find((opt: any) => opt.text === value);
+                if (selectedOption) {
+                  score += (selectedOption.absoluteScore || 0) * question.weight;
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error calculating answer score:', error);
+          }
         }
+
+        answerData.push({
+          responseId: response.id,
+          questionId: question.id,
+          value: answerValue,
+          evidence: evidences[question.id] || null,
+          score: score
+        });
       }
+    }
 
-      totalScore += score * question.weight;
-      totalWeight += question.weight;
-
-      return {
-        questionId: answer.questionId,
-        value: typeof answer.value === 'object' ? JSON.stringify(answer.value) : answer.value,
-        score
-      };
-    });
-
-    const finalScore = totalWeight > 0 ? totalScore / totalWeight : 0;
-
-    // Create response with transaction
-    const response = await prisma.$transaction(async (tx) => {
-      const newResponse = await tx.response.create({
-        data: {
-          surveyId,
-          userId: session.user.id,
-          completedAt: new Date(),
-          score: finalScore
-        }
+    if (answerData.length > 0) {
+      await prisma.answer.createMany({
+        data: answerData
       });
-
-      // Create answers
-      await tx.answer.createMany({
-        data: answersWithScores.map(answer => ({
-          responseId: newResponse.id,
-          questionId: answer.questionId,
-          value: answer.value,
-          score: answer.score
-        }))
-      });
-
-      return newResponse;
-    });
-
-    return NextResponse.json({
-      responseId: response.id,
-      score: finalScore,
-      message: 'Response submitted successfully'
-    }, { status: 201 });
-
-  } catch (error) {
-    console.error('Error submitting response:', error);
-    return NextResponse.json(
-      { error: 'Failed to submit response' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const session = await auth();
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const surveyId = params.id;
-    
-    // Check if user has permission to view responses
-    const survey = await prisma.survey.findUnique({
-      where: { id: surveyId }
-    });
-
-    if (!survey) {
-      return NextResponse.json({ error: 'Survey not found' }, { status: 404 });
-    }
-
-    if (survey.createdById !== session.user.id && 
-        !['SUPER_ADMIN', 'ORG_ADMIN'].includes(session.user.role)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
-    const responses = await prisma.response.findMany({
-      where: { surveyId },
+    // Return the response with answers
+    const fullResponse = await prisma.response.findUnique({
+      where: { id: response.id },
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        },
         answers: {
           include: {
             question: {
-              include: {
-                variableQuestion: {
-                  include: {
-                    variable: {
-                      include: {
-                        lever: {
-                          include: {
-                            pillar: true
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
+              select: {
+                id: true,
+                text: true,
+                type: true,
+                order: true
               }
             }
           }
         }
-      },
-      orderBy: {
-        completedAt: 'desc'
       }
     });
 
-    return NextResponse.json(responses);
+    return NextResponse.json(fullResponse, { status: 201 });
   } catch (error) {
-    console.error('Error fetching responses:', error);
+    console.error('Error creating response:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch responses' },
+      { error: 'Failed to create response' },
       { status: 500 }
     );
   }

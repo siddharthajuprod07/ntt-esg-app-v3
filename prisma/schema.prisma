@@ -122,6 +122,7 @@ model Answer {
   question      SurveyQuestion  @relation(fields: [questionId], references: [id])
   questionId    String
   value         String?   // The actual answer value
+  evidence      String?   @db.Text // Evidence data (file or text)
   score         Float?    // Calculated score for this answer
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt

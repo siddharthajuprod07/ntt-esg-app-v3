@@ -33,6 +33,12 @@ export async function GET(request: NextRequest) {
             questions: true,
             responses: true
           }
+        },
+        responses: {
+          select: {
+            id: true,
+            completedAt: true
+          }
         }
       },
       orderBy: [
@@ -40,7 +46,24 @@ export async function GET(request: NextRequest) {
       ]
     });
 
-    return NextResponse.json(surveys);
+    // Add separate counts for total responses, completed responses, and drafts
+    const surveysWithCounts = surveys.map(survey => {
+      const completedResponses = survey.responses.filter(r => r.completedAt !== null).length;
+      const draftResponses = survey.responses.filter(r => r.completedAt === null).length;
+      
+      return {
+        ...survey,
+        _count: {
+          ...survey._count,
+          responses: survey.responses.length, // Total responses including drafts
+          completedResponses: completedResponses,
+          draftResponses: draftResponses
+        },
+        responses: undefined // Remove the responses array from the response
+      };
+    });
+
+    return NextResponse.json(surveysWithCounts);
   } catch (error) {
     console.error('Error fetching surveys:', error);
     return NextResponse.json(
