@@ -426,13 +426,21 @@ export default function QuestionsPage() {
     setIsCreateDialogOpen(true);
   };
 
-  // Group questions by variable
+  // Group questions by variable with full hierarchy info
   const groupedQuestions = questions.reduce((acc, question) => {
-    const key = question.variable?.name || 'Unassigned';
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(question);
+    const variable = question.variable;
+    const key = variable?.id || 'unassigned';
+    if (!acc[key]) {
+      acc[key] = {
+        variableName: variable?.name || 'Unassigned',
+        leverName: variable?.lever?.name || null,
+        pillarName: variable?.lever?.pillar?.name || variable?.pillar?.name || null,
+        questions: []
+      };
+    }
+    acc[key].questions.push(question);
     return acc;
-  }, {} as Record<string, Question[]>);
+  }, {} as Record<string, { variableName: string; leverName: string | null; pillarName: string | null; questions: Question[] }>);
 
   return (
     <div className="container mx-auto py-8">
@@ -737,18 +745,25 @@ export default function QuestionsPage() {
         <div className="text-center py-8">Loading questions...</div>
       ) : (
         <div className="space-y-6">
-          {Object.entries(groupedQuestions).map(([variableName, questions]) => (
-            <Card key={variableName}>
+          {Object.entries(groupedQuestions).map(([key, group]) => (
+            <Card key={key}>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <FileQuestion className="h-5 w-5" />
-                  {variableName}
-                  <Badge variant="secondary">{questions.length} questions</Badge>
+                  {group.variableName}
+                  <Badge variant="secondary">{group.questions.length} questions</Badge>
                 </CardTitle>
+                {(group.pillarName || group.leverName) && (
+                  <CardDescription>
+                    {group.pillarName && <span className="font-medium">{group.pillarName}</span>}
+                    {group.pillarName && group.leverName && ' → '}
+                    {group.leverName && <span>{group.leverName}</span>}
+                  </CardDescription>
+                )}
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {questions.sort((a, b) => a.order - b.order).map(question => (
+                  {group.questions.sort((a, b) => a.order - b.order).map(question => (
                     <div key={question.id} className="border rounded-lg p-4">
                       <div className="flex justify-between items-start">
                         <div className="flex-1">

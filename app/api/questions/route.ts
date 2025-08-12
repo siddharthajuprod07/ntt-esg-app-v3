@@ -2,6 +2,47 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 
+// Helper function to get lever and pillar for a variable (including hierarchical)
+async function getVariableHierarchy(variableId: string) {
+  let currentVariable = await prisma.variable.findUnique({
+    where: { id: variableId },
+    include: {
+      lever: {
+        include: {
+          pillar: true
+        }
+      }
+    }
+  });
+
+  // If the variable has a lever directly, return it
+  if (currentVariable?.lever) {
+    return {
+      lever: currentVariable.lever,
+      pillar: currentVariable.lever.pillar
+    };
+  }
+
+  // Otherwise, traverse up the hierarchy to find the root variable with a lever
+  while (currentVariable && !currentVariable.lever && currentVariable.parentId) {
+    currentVariable = await prisma.variable.findUnique({
+      where: { id: currentVariable.parentId },
+      include: {
+        lever: {
+          include: {
+            pillar: true
+          }
+        }
+      }
+    });
+  }
+
+  return {
+    lever: currentVariable?.lever || null,
+    pillar: currentVariable?.lever?.pillar || null
+  };
+}
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -10,15 +51,7 @@ export async function GET(request: NextRequest) {
     const questions = await prisma.variableQuestion.findMany({
       where: variableId ? { variableId } : undefined,
       include: {
-        variable: {
-          include: {
-            lever: {
-              include: {
-                pillar: true
-              }
-            }
-          }
-        }
+        variable: true
       },
       orderBy: [
         { variableId: 'asc' },
@@ -26,7 +59,22 @@ export async function GET(request: NextRequest) {
       ]
     });
 
-    return NextResponse.json(questions);
+    // Enrich questions with lever and pillar information
+    const enrichedQuestions = await Promise.all(
+      questions.map(async (question) => {
+        const hierarchy = await getVariableHierarchy(question.variableId);
+        return {
+          ...question,
+          variable: {
+            ...question.variable,
+            lever: hierarchy.lever,
+            pillar: hierarchy.pillar
+          }
+        };
+      })
+    );
+
+    return NextResponse.json(enrichedQuestions);
   } catch (error) {
     console.error('Error fetching questions:', error);
     return NextResponse.json(
@@ -92,19 +140,22 @@ export async function POST(request: NextRequest) {
         variableId
       },
       include: {
-        variable: {
-          include: {
-            lever: {
-              include: {
-                pillar: true
-              }
-            }
-          }
-        }
+        variable: true
       }
     });
 
-    return NextResponse.json(question, { status: 201 });
+    // Enrich with lever and pillar information
+    const hierarchy = await getVariableHierarchy(question.variableId);
+    const enrichedQuestion = {
+      ...question,
+      variable: {
+        ...question.variable,
+        lever: hierarchy.lever,
+        pillar: hierarchy.pillar
+      }
+    };
+
+    return NextResponse.json(enrichedQuestion, { status: 201 });
   } catch (error) {
     console.error('Error creating question:', error);
     return NextResponse.json(
@@ -155,19 +206,22 @@ export async function PUT(request: NextRequest) {
         variableId
       },
       include: {
-        variable: {
-          include: {
-            lever: {
-              include: {
-                pillar: true
-              }
-            }
-          }
-        }
+        variable: true
       }
     });
 
-    return NextResponse.json(question);
+    // Enrich with lever and pillar information
+    const hierarchy = await getVariableHierarchy(question.variableId);
+    const enrichedQuestion = {
+      ...question,
+      variable: {
+        ...question.variable,
+        lever: hierarchy.lever,
+        pillar: hierarchy.pillar
+      }
+    };
+
+    return NextResponse.json(enrichedQuestion);
   } catch (error) {
     console.error('Error updating question:', error);
     return NextResponse.json(
