@@ -40,24 +40,6 @@ interface Variable {
   };
 }
 
-interface Question {
-  id: string;
-  text: string;
-  type: string;
-  required: boolean;
-  weightage: number;
-  variableId: string;
-  variable: {
-    name: string;
-    lever?: {
-      name: string;
-      pillar: {
-        name: string;
-      };
-    };
-  };
-}
-
 export default function CreateSurveyPageV2() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -83,12 +65,6 @@ export default function CreateSurveyPageV2() {
   const [selectedLevers, setSelectedLevers] = useState<string[]>([]);
   const [selectedVariables, setSelectedVariables] = useState<string[]>([]);
   const [questionPreview, setQuestionPreview] = useState<number>(0);
-  
-  // Question selection state
-  const [availableQuestions, setAvailableQuestions] = useState<Question[]>([]);
-  const [selectedQuestions, setSelectedQuestions] = useState<string[]>([]);
-  const [questionsLoading, setQuestionsLoading] = useState(false);
-  const [showQuestionSelection, setShowQuestionSelection] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -142,16 +118,13 @@ export default function CreateSurveyPageV2() {
     }
   };
 
-  // Load available questions based on selections
-  const loadAvailableQuestions = async (pillars: string[], levers: string[], variables: string[]) => {
+  // Update question preview when selections change
+  const updateQuestionPreview = async (pillars: string[], levers: string[], variables: string[]) => {
     if (pillars.length === 0 && levers.length === 0 && variables.length === 0) {
-      setAvailableQuestions([]);
-      setSelectedQuestions([]);
-      setShowQuestionSelection(false);
+      setQuestionPreview(0);
       return;
     }
 
-    setQuestionsLoading(true);
     try {
       const params = new URLSearchParams();
       if (variables.length > 0) {
@@ -162,32 +135,15 @@ export default function CreateSurveyPageV2() {
         params.append('pillars', pillars.join(','));
       }
 
-      const response = await fetch(`/api/questions?${params}`);
+      const response = await fetch(`/api/questions/count?${params}`);
       if (response.ok) {
-        const questions = await response.json();
-        setAvailableQuestions(questions);
-        // Auto-select all questions initially
-        setSelectedQuestions(questions.map((q: Question) => q.id));
-        setQuestionPreview(questions.length);
-        setShowQuestionSelection(questions.length > 0);
+        const data = await response.json();
+        setQuestionPreview(data.count || 0);
       }
     } catch (error) {
-      console.error('Error fetching questions:', error);
-      setAvailableQuestions([]);
-      setSelectedQuestions([]);
-      setShowQuestionSelection(false);
-    } finally {
-      setQuestionsLoading(false);
+      console.error('Error fetching question count:', error);
+      setQuestionPreview(0);
     }
-  };
-
-  // Update question preview when selections change
-  const updateQuestionPreview = (pillars: string[], levers: string[], variables: string[]) => {
-    setQuestionPreview(0);
-    // Use setTimeout to avoid blocking the UI and potential infinite loops
-    setTimeout(() => {
-      loadAvailableQuestions(pillars, levers, variables);
-    }, 100);
   };
 
   const handlePillarToggle = (pillarId: string) => {
@@ -198,10 +154,9 @@ export default function CreateSurveyPageV2() {
     setSelectedPillars(newSelected);
     setSelectedLevers([]); // Clear dependent selections
     setSelectedVariables([]);
-    setAvailableQuestions([]);
-    setSelectedQuestions([]);
-    setShowQuestionSelection(false);
-    setQuestionPreview(0);
+    
+    // Update preview
+    updateQuestionPreview(newSelected, [], []);
   };
 
   const handleLeverToggle = (leverId: string) => {
@@ -211,10 +166,9 @@ export default function CreateSurveyPageV2() {
     
     setSelectedLevers(newSelected);
     setSelectedVariables([]); // Clear dependent selections
-    setAvailableQuestions([]);
-    setSelectedQuestions([]);
-    setShowQuestionSelection(false);
-    setQuestionPreview(0);
+    
+    // Update preview
+    updateQuestionPreview(selectedPillars, newSelected, []);
   };
 
   const handleVariableToggle = (variableId: string) => {
@@ -223,14 +177,9 @@ export default function CreateSurveyPageV2() {
       : [...selectedVariables, variableId];
     
     setSelectedVariables(newSelected);
-    setAvailableQuestions([]);
-    setSelectedQuestions([]);
-    setShowQuestionSelection(false);
-    setQuestionPreview(0);
-  };
-
-  const handleLoadQuestions = () => {
-    loadAvailableQuestions(selectedPillars, selectedLevers, selectedVariables);
+    
+    // Update preview
+    updateQuestionPreview(selectedPillars, selectedLevers, newSelected);
   };
 
   // Filter functions
@@ -245,25 +194,9 @@ export default function CreateSurveyPageV2() {
     }
     
     if (selectedLevers.length > 0) {
-      // Get all variables under selected levers, including hierarchical children
-      return variables.filter(variable => {
-        if (variable.leverId && selectedLevers.includes(variable.leverId)) {
-          return true; // Direct child of selected lever
-        }
-        
-        // Check if it's a hierarchical child of a variable under selected lever
-        let current = variable;
-        while (current.parentId) {
-          const parent = variables.find(v => v.id === current.parentId);
-          if (!parent) break;
-          if (parent.leverId && selectedLevers.includes(parent.leverId)) {
-            return true; // Child of a variable under selected lever
-          }
-          current = parent;
-        }
-        
-        return false;
-      });
+      return variables.filter(variable => 
+        variable.leverId && selectedLevers.includes(variable.leverId)
+      );
     }
     
     if (selectedPillars.length > 0) {
@@ -271,50 +204,12 @@ export default function CreateSurveyPageV2() {
         .filter(lever => selectedPillars.includes(lever.pillarId))
         .map(lever => lever.id);
       
-      // Get all variables under relevant levers, including hierarchical children
-      return variables.filter(variable => {
-        if (variable.leverId && relevantLeverIds.includes(variable.leverId)) {
-          return true; // Direct child of relevant lever
-        }
-        
-        // Check if it's a hierarchical child of a variable under relevant lever
-        let current = variable;
-        while (current.parentId) {
-          const parent = variables.find(v => v.id === current.parentId);
-          if (!parent) break;
-          if (parent.leverId && relevantLeverIds.includes(parent.leverId)) {
-            return true; // Child of a variable under relevant lever
-          }
-          current = parent;
-        }
-        
-        return false;
-      });
+      return variables.filter(variable => 
+        variable.leverId && relevantLeverIds.includes(variable.leverId)
+      );
     }
     
     return variables;
-  };
-
-  // Question selection handlers
-  const handleQuestionToggle = (questionId: string) => {
-    const newSelected = selectedQuestions.includes(questionId)
-      ? selectedQuestions.filter(id => id !== questionId)
-      : [...selectedQuestions, questionId];
-    
-    // Use functional updates to avoid stale state issues
-    setSelectedQuestions(newSelected);
-    setQuestionPreview(newSelected.length);
-  };
-
-  const handleSelectAllQuestions = () => {
-    const allIds = availableQuestions.map(q => q.id);
-    setSelectedQuestions(allIds);
-    setQuestionPreview(allIds.length);
-  };
-
-  const handleDeselectAllQuestions = () => {
-    setSelectedQuestions([]);
-    setQuestionPreview(0);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -329,10 +224,10 @@ export default function CreateSurveyPageV2() {
       return;
     }
 
-    if (selectedQuestions.length === 0) {
+    if (selectedPillars.length === 0 && selectedLevers.length === 0 && selectedVariables.length === 0) {
       toast({
         title: 'Validation Error',
-        description: 'Please select at least one question for the survey',
+        description: 'Please select at least one pillar, lever, or variable',
         variant: 'destructive'
       });
       return;
@@ -349,7 +244,6 @@ export default function CreateSurveyPageV2() {
         body: JSON.stringify({
           ...formData,
           maxResponses: formData.maxResponses ? parseInt(formData.maxResponses) : undefined,
-          selectedQuestions: selectedQuestions,
           selectedPillars: selectedPillars.length > 0 ? selectedPillars : undefined,
           selectedLevers: selectedLevers.length > 0 ? selectedLevers : undefined,
           selectedVariables: selectedVariables.length > 0 ? selectedVariables : undefined
@@ -510,26 +404,13 @@ export default function CreateSurveyPageV2() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Question Preview and Load Button */}
+            {/* Question Preview */}
             <div className="bg-blue-50 p-4 rounded-lg">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-blue-600" />
-                  <span className="font-medium text-blue-800">
-                    {questionPreview} questions will be included in this survey
-                  </span>
-                </div>
-                {(selectedPillars.length > 0 || selectedLevers.length > 0 || selectedVariables.length > 0) && !showQuestionSelection && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleLoadQuestions}
-                    disabled={questionsLoading}
-                  >
-                    {questionsLoading ? 'Loading...' : 'Load Questions'}
-                  </Button>
-                )}
+              <div className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-blue-600" />
+                <span className="font-medium text-blue-800">
+                  {questionPreview} questions will be included in this survey
+                </span>
               </div>
             </div>
 
@@ -713,117 +594,6 @@ export default function CreateSurveyPageV2() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Individual Question Selection */}
-        {showQuestionSelection && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Select Specific Questions</CardTitle>
-              <CardDescription>
-                Choose which questions to include in your survey from the selected variables
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {questionsLoading ? (
-                <div className="text-center py-8">
-                  <div className="text-gray-500">Loading questions...</div>
-                </div>
-              ) : (
-                <>
-                  {/* Question Selection Controls */}
-                  <div className="flex justify-between items-center pb-4 border-b">
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm font-medium">
-                        {selectedQuestions.length} of {availableQuestions.length} questions selected
-                      </span>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={handleSelectAllQuestions}
-                        disabled={selectedQuestions.length === availableQuestions.length}
-                      >
-                        Select All
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={handleDeselectAllQuestions}
-                        disabled={selectedQuestions.length === 0}
-                      >
-                        Deselect All
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Questions List */}
-                  <div className="space-y-3 max-h-96 overflow-y-auto">
-                    {availableQuestions.map((question, index) => (
-                      <Card 
-                        key={question.id}
-                        className={`transition-all ${
-                          selectedQuestions.includes(question.id)
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'hover:border-gray-300'
-                        }`}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex items-start space-x-3">
-                            <Checkbox
-                              checked={selectedQuestions.includes(question.id)}
-                              onCheckedChange={() => handleQuestionToggle(question.id)}
-                              className="mt-1"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <h4 className="font-medium text-sm mb-1">
-                                    Q{index + 1}: {question.text}
-                                  </h4>
-                                  <div className="flex items-center gap-4 text-xs text-gray-500 mb-2">
-                                    <span className="flex items-center gap-1">
-                                      <Badge variant="outline" className="text-xs px-1 py-0">
-                                        {question.type.replace('_', ' ')}
-                                      </Badge>
-                                    </span>
-                                    {question.required && (
-                                      <span className="text-red-500">Required</span>
-                                    )}
-                                    <span>Weight: {question.weightage}</span>
-                                  </div>
-                                  <div className="text-xs text-gray-600">
-                                    <span className="font-medium">Variable:</span> {question.variable.name}
-                                    {question.variable.lever && (
-                                      <>
-                                        {' • '}
-                                        <span className="font-medium">Lever:</span> {question.variable.lever.name}
-                                        {' • '}
-                                        <span className="font-medium">Pillar:</span> {question.variable.lever.pillar.name}
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-
-                  {availableQuestions.length === 0 && (
-                    <div className="text-center py-8 text-gray-500">
-                      No questions available for the selected variables.
-                    </div>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
-        )}
 
         {/* Submit */}
         <div className="flex justify-end gap-4">

@@ -1,105 +1,151 @@
-import { auth } from "@/lib/auth"
-import { redirect } from "next/navigation"
-import Link from "next/link"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { 
-  Plus,
-  FileText,
-  Calendar,
-  Users,
-  MoreVertical,
-  Edit,
-  Copy,
-  Trash2,
-  BarChart3
-} from "lucide-react"
+'use client';
 
-export default async function SurveysPage() {
-  const session = await auth()
-  
-  if (!session) {
-    redirect("/auth/login")
-  }
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/components/ui/use-toast';
+import { Plus, Edit, Trash2, Play, Users, FileText, Calendar, Settings } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 
-  // Mock data - replace with actual database query
-  const surveys = [
-    {
-      id: "1",
-      title: "Q4 2024 Environmental Impact Assessment",
-      description: "Comprehensive assessment of our environmental footprint including carbon emissions, waste management, and resource efficiency.",
-      category: "Environmental",
-      status: "active",
-      createdAt: new Date("2024-12-15"),
-      responseCount: 45,
-      completionRate: 78,
-    },
-    {
-      id: "2",
-      title: "Employee Wellbeing & Diversity Survey",
-      description: "Annual survey to assess employee satisfaction, diversity metrics, and workplace culture.",
-      category: "Social",
-      status: "active",
-      createdAt: new Date("2024-12-10"),
-      responseCount: 38,
-      completionRate: 65,
-    },
-    {
-      id: "3",
-      title: "Governance & Compliance Review",
-      description: "Quarterly review of governance structures, compliance procedures, and risk management.",
-      category: "Governance",
-      status: "completed",
-      createdAt: new Date("2024-11-28"),
-      responseCount: 52,
-      completionRate: 92,
-    },
-  ]
+interface Survey {
+  id: string;
+  title: string;
+  description?: string;
+  category: string;
+  isActive: boolean;
+  isPublished: boolean;
+  startDate?: string;
+  endDate?: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  _count: {
+    questions: number;
+    responses: number;
+  };
+}
 
-  const getCategoryColor = (category: string) => {
-    switch (category) {
-      case "Environmental":
-        return "bg-green-100 text-green-700"
-      case "Social":
-        return "bg-blue-100 text-blue-700"
-      case "Governance":
-        return "bg-purple-100 text-purple-700"
-      default:
-        return "bg-gray-100 text-gray-700"
+export default function SurveysPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const { toast } = useToast();
+  const [surveys, setSurveys] = useState<Survey[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push('/auth/login');
+      return;
     }
+    
+    if (session) {
+      fetchSurveys();
+    }
+  }, [session, status, router]);
+
+  const fetchSurveys = async () => {
+    try {
+      const response = await fetch('/api/surveys');
+      if (response.ok) {
+        const data = await response.json();
+        setSurveys(data);
+      }
+    } catch (error) {
+      console.error('Error fetching surveys:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePublishToggle = async (survey: Survey) => {
+    try {
+      const response = await fetch(`/api/surveys/${survey.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPublished: !survey.isPublished })
+      });
+
+      if (response.ok) {
+        fetchSurveys();
+        toast({
+          title: survey.isPublished ? 'Survey Unpublished' : 'Survey Published',
+          description: `Survey has been ${survey.isPublished ? 'unpublished' : 'published'} successfully.`
+        });
+      }
+    } catch (error) {
+      console.error('Error toggling publish status:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update survey status.',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleDelete = async (surveyId: string) => {
+    if (!confirm('Are you sure you want to delete this survey? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/surveys/${surveyId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        fetchSurveys();
+        toast({
+          title: 'Survey Deleted',
+          description: 'Survey has been deleted successfully.'
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting survey:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete survey.',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  if (status === 'loading' || loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">Loading...</div>
+      </div>
+    );
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "active":
-        return "bg-green-100 text-green-700"
-      case "draft":
-        return "bg-yellow-100 text-yellow-700"
-      case "completed":
-        return "bg-gray-100 text-gray-700"
-      default:
-        return "bg-gray-100 text-gray-700"
-    }
+  if (status === 'unauthenticated') {
+    return null;
   }
+
+  const canManageSurveys = ['SUPER_ADMIN', 'ORG_ADMIN', 'SURVEY_CREATOR'].includes(session?.user?.role || '');
 
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Header */}
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">My Surveys</h1>
-          <p className="text-gray-600 mt-2">
-            Create and manage your ESG assessment surveys
-          </p>
+          <h1 className="text-3xl font-bold text-gray-900">Surveys Management</h1>
+          <p className="text-gray-600 mt-2">Create and manage ESG assessment surveys</p>
         </div>
-        <Link href="/surveys/create">
-          <Button>
+        {canManageSurveys && (
+          <Button onClick={() => router.push('/surveys/create')}>
             <Plus className="mr-2 h-4 w-4" />
             Create Survey
           </Button>
-        </Link>
+        )}
       </div>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <Card>
@@ -111,17 +157,19 @@ export default async function SurveysPage() {
             <div className="text-2xl font-bold">{surveys.length}</div>
           </CardContent>
         </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Surveys</CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Published</CardTitle>
+            <Play className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {surveys.filter(s => s.status === "active").length}
+              {surveys.filter(s => s.isPublished).length}
             </div>
           </CardContent>
         </Card>
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Responses</CardTitle>
@@ -129,75 +177,129 @@ export default async function SurveysPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {surveys.reduce((acc, s) => acc + s.responseCount, 0)}
+              {surveys.reduce((total, survey) => total + survey._count.responses, 0)}
             </div>
           </CardContent>
         </Card>
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg Completion</CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Avg Questions</CardTitle>
+            <Settings className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {Math.round(surveys.reduce((acc, s) => acc + s.completionRate, 0) / surveys.length)}%
+              {surveys.length > 0 
+                ? Math.round(surveys.reduce((total, survey) => total + survey._count.questions, 0) / surveys.length)
+                : 0
+              }
             </div>
           </CardContent>
         </Card>
       </div>
-      {/* Surveys List */}
+      {/* Surveys Grid */}
       <div className="grid gap-4">
         {surveys.map((survey) => (
           <Card key={survey.id} className="hover:shadow-lg transition-shadow">
             <CardHeader>
               <div className="flex justify-between items-start">
-                <div className="space-y-1">
-                  <CardTitle className="text-xl">{survey.title}</CardTitle>
-                  <CardDescription className="mt-2">
-                    {survey.description}
-                  </CardDescription>
-                  <div className="flex items-center gap-2 mt-3">
-                    <Badge className={getCategoryColor(survey.category)} variant="secondary">
+                <div className="space-y-2 flex-1">
+                  <div className="flex items-center gap-3">
+                    <CardTitle className="text-xl">{survey.title}</CardTitle>
+                    <Badge variant={survey.category === 'Environmental' ? 'default' : 
+                                 survey.category === 'Social' ? 'secondary' : 'outline'}>
                       {survey.category}
                     </Badge>
-                    <Badge className={getStatusColor(survey.status)} variant="secondary">
-                      {survey.status}
+                    <Badge variant={survey.isPublished ? 'default' : 'secondary'}>
+                      {survey.isPublished ? 'Published' : 'Draft'}
                     </Badge>
+                    {!survey.isActive && (
+                      <Badge variant="destructive">Inactive</Badge>
+                    )}
+                  </div>
+                  
+                  {survey.description && (
+                    <CardDescription className="mt-2">
+                      {survey.description}
+                    </CardDescription>
+                  )}
+                  
+                  <div className="flex items-center gap-4 text-sm text-gray-600">
+                    <span className="flex items-center gap-1">
+                      <FileText className="h-3 w-3" />
+                      {survey._count.questions} questions
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Users className="h-3 w-3" />
+                      {survey._count.responses} responses
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      Created: {new Date(survey.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                  
+                  <div className="text-sm text-gray-500">
+                    Created by: {survey.createdBy.name}
                   </div>
                 </div>
-                <Button variant="ghost" size="icon">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
+                
+                {canManageSurveys && (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => router.push(`/surveys/${survey.id}/edit`)}
+                      >
+                        <Edit className="h-4 w-4 mr-1" />
+                        Edit
+                      </Button>
+                      
+                      <Button
+                        variant={survey.isPublished ? 'secondary' : 'default'}
+                        size="sm"
+                        onClick={() => handlePublishToggle(survey)}
+                      >
+                        <Play className="h-4 w-4 mr-1" />
+                        {survey.isPublished ? 'Unpublish' : 'Publish'}
+                      </Button>
+                      
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(survey.id)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    
+                    {survey.isPublished && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => router.push(`/surveys/${survey.id}/take`)}
+                        className="w-full"
+                      >
+                        <Play className="h-4 w-4 mr-1" />
+                        Take Survey
+                      </Button>
+                    )}
+                    
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => router.push(`/surveys/${survey.id}/responses`)}
+                      className="w-full"
+                    >
+                      <Users className="h-4 w-4 mr-1" />
+                      View Responses
+                    </Button>
+                  </div>
+                )}
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-6 text-sm text-gray-600">
-                  <span className="flex items-center">
-                    <Calendar className="h-4 w-4 mr-1" />
-                    {survey.createdAt.toLocaleDateString()}
-                  </span>
-                  <span className="flex items-center">
-                    <Users className="h-4 w-4 mr-1" />
-                    {survey.responseCount} responses
-                  </span>
-                  <span className="flex items-center">
-                    <BarChart3 className="h-4 w-4 mr-1" />
-                    {survey.completionRate}% completion
-                  </span>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
-                    <Edit className="h-4 w-4 mr-1" />
-                    Edit
-                  </Button>
-                  <Button variant="outline" size="sm">
-                    <BarChart3 className="h-4 w-4 mr-1" />
-                    Results
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
           </Card>
         ))}
       </div>

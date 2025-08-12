@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
-import { ArrowLeft, X, FileText } from 'lucide-react';
+import { ArrowLeft, X, FileText, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 
 interface Pillar {
@@ -58,13 +58,60 @@ interface Question {
   };
 }
 
-export default function CreateSurveyPageV2() {
+interface Survey {
+  id: string;
+  title: string;
+  description?: string;
+  category: string;
+  startDate?: string;
+  endDate?: string;
+  allowAnonymous: boolean;
+  maxResponses?: number;
+  isPublished: boolean;
+  selectedPillars?: string[];
+  selectedLevers?: string[];
+  selectedVariables?: string[];
+  questions: Array<{
+    id: string;
+    text: string;
+    type: string;
+    required: boolean;
+    weight: number;
+    order: number;
+    variableQuestion: {
+      id: string;
+      variable: {
+        name: string;
+        lever?: {
+          name: string;
+          pillar: {
+            name: string;
+          };
+        };
+      };
+    };
+  }>;
+  createdBy: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  _count: {
+    questions: number;
+    responses: number;
+  };
+}
+
+export default function EditSurveyPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const params = useParams();
   const { toast } = useToast();
+  const surveyId = params.id as string;
 
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
+  const [survey, setSurvey] = useState<Survey | null>(null);
   const [pillars, setPillars] = useState<Pillar[]>([]);
   const [levers, setLevers] = useState<Lever[]>([]);
   const [variables, setVariables] = useState<Variable[]>([]);
@@ -98,23 +145,52 @@ export default function CreateSurveyPageV2() {
     }
     
     if (session) {
-      const canCreate = ['SUPER_ADMIN', 'ORG_ADMIN', 'SURVEY_CREATOR'].includes(session.user?.role || '');
-      if (!canCreate) {
+      const canEdit = ['SUPER_ADMIN', 'ORG_ADMIN', 'SURVEY_CREATOR'].includes(session.user?.role || '');
+      if (!canEdit) {
         router.push('/surveys');
         return;
       }
-      fetchHierarchyData();
+      fetchInitialData();
     }
-  }, [session, status, router]);
+  }, [session, status, router, surveyId]);
 
-  const fetchHierarchyData = async () => {
+  const fetchInitialData = async () => {
     setDataLoading(true);
     try {
-      const [pillarsRes, leversRes, variablesRes] = await Promise.all([
+      const [surveyRes, pillarsRes, leversRes, variablesRes] = await Promise.all([
+        fetch(`/api/surveys/${surveyId}`),
         fetch('/api/pillars'),
         fetch('/api/levers'),
         fetch('/api/variables')
       ]);
+
+      if (!surveyRes.ok) {
+        throw new Error('Survey not found');
+      }
+
+      const surveyData = await surveyRes.json();
+      setSurvey(surveyData);
+      
+      // Pre-populate form data
+      setFormData({
+        title: surveyData.title || '',
+        description: surveyData.description || '',
+        category: surveyData.category || '',
+        startDate: surveyData.startDate ? new Date(surveyData.startDate).toISOString().slice(0, 16) : '',
+        endDate: surveyData.endDate ? new Date(surveyData.endDate).toISOString().slice(0, 16) : '',
+        allowAnonymous: surveyData.allowAnonymous || false,
+        maxResponses: surveyData.maxResponses?.toString() || ''
+      });
+
+      // Pre-populate selections
+      setSelectedPillars(surveyData.selectedPillars || []);
+      setSelectedLevers(surveyData.selectedLevers || []);
+      setSelectedVariables(surveyData.selectedVariables || []);
+      
+      // Pre-populate selected questions
+      const existingQuestionIds = surveyData.questions.map((q: any) => q.variableQuestion.id);
+      setSelectedQuestions(existingQuestionIds);
+      setQuestionPreview(existingQuestionIds.length);
 
       if (pillarsRes.ok) {
         const pillarsData = await pillarsRes.json();
@@ -131,12 +207,13 @@ export default function CreateSurveyPageV2() {
         setVariables(variablesData);
       }
     } catch (error) {
-      console.error('Error fetching hierarchy data:', error);
+      console.error('Error fetching data:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load hierarchy data',
+        description: 'Failed to load survey data',
         variant: 'destructive'
       });
+      router.push('/surveys');
     } finally {
       setDataLoading(false);
     }
@@ -166,28 +243,15 @@ export default function CreateSurveyPageV2() {
       if (response.ok) {
         const questions = await response.json();
         setAvailableQuestions(questions);
-        // Auto-select all questions initially
-        setSelectedQuestions(questions.map((q: Question) => q.id));
-        setQuestionPreview(questions.length);
         setShowQuestionSelection(questions.length > 0);
       }
     } catch (error) {
       console.error('Error fetching questions:', error);
       setAvailableQuestions([]);
-      setSelectedQuestions([]);
       setShowQuestionSelection(false);
     } finally {
       setQuestionsLoading(false);
     }
-  };
-
-  // Update question preview when selections change
-  const updateQuestionPreview = (pillars: string[], levers: string[], variables: string[]) => {
-    setQuestionPreview(0);
-    // Use setTimeout to avoid blocking the UI and potential infinite loops
-    setTimeout(() => {
-      loadAvailableQuestions(pillars, levers, variables);
-    }, 100);
   };
 
   const handlePillarToggle = (pillarId: string) => {
@@ -301,7 +365,6 @@ export default function CreateSurveyPageV2() {
       ? selectedQuestions.filter(id => id !== questionId)
       : [...selectedQuestions, questionId];
     
-    // Use functional updates to avoid stale state issues
     setSelectedQuestions(newSelected);
     setQuestionPreview(newSelected.length);
   };
@@ -341,8 +404,8 @@ export default function CreateSurveyPageV2() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/surveys', {
-        method: 'POST',
+      const response = await fetch(`/api/surveys/${surveyId}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
         },
@@ -357,21 +420,20 @@ export default function CreateSurveyPageV2() {
       });
 
       if (response.ok) {
-        const survey = await response.json();
         toast({
           title: 'Success',
-          description: 'Survey created successfully'
+          description: 'Survey updated successfully'
         });
         router.push(`/surveys`);
       } else {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to create survey');
+        throw new Error(error.error || 'Failed to update survey');
       }
     } catch (error) {
-      console.error('Error creating survey:', error);
+      console.error('Error updating survey:', error);
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to create survey',
+        description: error instanceof Error ? error.message : 'Failed to update survey',
         variant: 'destructive'
       });
     } finally {
@@ -387,9 +449,11 @@ export default function CreateSurveyPageV2() {
     );
   }
 
-  if (status === 'unauthenticated') {
+  if (status === 'unauthenticated' || !survey) {
     return null;
   }
+
+  const hasResponses = (survey._count?.responses || 0) > 0;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -401,11 +465,29 @@ export default function CreateSurveyPageV2() {
             Back to Surveys
           </Button>
         </Link>
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Create New Survey</h1>
-          <p className="text-gray-600 mt-2">Design your ESG assessment survey</p>
+        <div className="flex-1">
+          <h1 className="text-3xl font-bold text-gray-900">Edit Survey</h1>
+          <p className="text-gray-600 mt-2">Update your ESG assessment survey</p>
+        </div>
+        <div className="text-sm text-gray-500">
+          <div>Created by: {survey.createdBy.name}</div>
+          <div>{survey._count?.responses || 0} responses received</div>
         </div>
       </div>
+
+      {hasResponses && (
+        <Card className="mb-6 border-amber-200 bg-amber-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 text-amber-800">
+              <AlertCircle className="h-4 w-4" />
+              <p className="font-medium">
+                Warning: This survey has {survey._count?.responses || 0} responses. 
+                Changes to questions may affect existing response data.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Basic Information */}
@@ -413,7 +495,7 @@ export default function CreateSurveyPageV2() {
           <CardHeader>
             <CardTitle>Basic Information</CardTitle>
             <CardDescription>
-              Set up the basic details of your survey
+              Update the basic details of your survey
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -833,7 +915,7 @@ export default function CreateSurveyPageV2() {
             </Button>
           </Link>
           <Button type="submit" disabled={loading}>
-            {loading ? 'Creating...' : 'Create Survey'}
+            {loading ? 'Updating...' : 'Update Survey'}
           </Button>
         </div>
       </form>

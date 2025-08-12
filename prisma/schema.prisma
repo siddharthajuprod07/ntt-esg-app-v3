@@ -46,8 +46,15 @@ model Survey {
   endDate       DateTime?
   isActive      Boolean   @default(true)
   isPublished   Boolean   @default(false)
+  allowAnonymous Boolean  @default(false)
+  maxResponses  Int?      // Maximum number of responses allowed
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  
+  // Selected pillars, levers, and variables for this survey
+  selectedPillars   Json?  // Array of pillar IDs
+  selectedLevers    Json?  // Array of lever IDs  
+  selectedVariables Json?  // Array of variable IDs
   
   questions     SurveyQuestion[]
   responses     Response[]
@@ -61,19 +68,32 @@ model SurveyQuestion {
   id            String    @id @default(cuid())
   survey        Survey    @relation(fields: [surveyId], references: [id], onDelete: Cascade)
   surveyId      String
+  
+  // Reference to the original variable question
+  variableQuestion    VariableQuestion @relation(fields: [variableQuestionId], references: [id])
+  variableQuestionId  String
+  
+  // Survey-specific customizations (copy from variable question but can be modified)
   text          String
-  type          String    // multiple_choice, rating, yes_no, text
-  options       Json?     // For multiple choice options
+  type          String    // single_select, multi_select, text
+  options       Json?     // For options with scores
   required      Boolean   @default(true)
   order         Int
   weight        Float     @default(1.0)
-  category      String?
+  
+  // Question grouping (copied from variable question)
+  groupId       String?
+  isGroupLead   Boolean   @default(false)
+  requiresEvidence Boolean @default(false)
+  evidenceDescription String?
+  
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   
   answers       Answer[]
   
   @@index([surveyId])
+  @@index([variableQuestionId])
   @@unique([surveyId, order])
 }
 
@@ -214,6 +234,9 @@ model VariableQuestion {
   
   variable      Variable  @relation(fields: [variableId], references: [id], onDelete: Cascade)
   variableId    String
+  
+  // Relations to surveys that use this question
+  surveyQuestions SurveyQuestion[]
   
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt

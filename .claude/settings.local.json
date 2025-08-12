@@ -27,7 +27,8 @@
       "Bash(curl:*)",
       "Bash(docker system prune:*)",
       "Bash(timeout 10s docker-compose logs -f app)",
-      "Bash(timeout 15s docker-compose logs -f app)"
+      "Bash(timeout 15s docker-compose logs -f app)",
+      "Bash(/dev/null)"
     ],
     "deny": []
   }
