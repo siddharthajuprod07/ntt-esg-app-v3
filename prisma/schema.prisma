@@ -49,7 +49,7 @@ model Survey {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   
-  questions     Question[]
+  questions     SurveyQuestion[]
   responses     Response[]
   
   @@index([createdById])
@@ -57,7 +57,7 @@ model Survey {
   @@index([isActive, isPublished])
 }
 
-model Question {
+model SurveyQuestion {
   id            String    @id @default(cuid())
   survey        Survey    @relation(fields: [surveyId], references: [id], onDelete: Cascade)
   surveyId      String
@@ -99,7 +99,7 @@ model Answer {
   id            String    @id @default(cuid())
   response      Response  @relation(fields: [responseId], references: [id], onDelete: Cascade)
   responseId    String
-  question      Question  @relation(fields: [questionId], references: [id])
+  question      SurveyQuestion  @relation(fields: [questionId], references: [id])
   questionId    String
   value         String?   // The actual answer value
   score         Float?    // Calculated score for this answer
@@ -191,11 +191,23 @@ model Variable {
 model VariableQuestion {
   id            String    @id @default(cuid())
   text          String
-  type          String    // multiple_choice, rating, yes_no, text, calculated
-  options       Json?     // For multiple choice options
+  type          String    // single_select, multi_select, text
+  
+  // Enhanced options structure for scoring
+  // Format: [{ text: string, absoluteScore: number, internalScore: number }]
+  options       Json?     
+  
   required      Boolean   @default(true)
   weightage     Float     @default(1.0)
   order         Int
+  
+  // Question grouping
+  groupId       String?   // Questions with same groupId are grouped
+  isGroupLead   Boolean   @default(false) // First question in a group
+  
+  // Evidence upload flag
+  requiresEvidence Boolean @default(false)
+  evidenceDescription String? // Description of what evidence is needed
   
   // Formula for calculated questions (can reference other questions)
   formula       String?   
@@ -208,5 +220,6 @@ model VariableQuestion {
   
   @@index([variableId])
   @@index([type])
+  @@index([groupId])
   @@unique([variableId, order])
 }

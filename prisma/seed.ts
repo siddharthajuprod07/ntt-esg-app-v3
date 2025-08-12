@@ -178,7 +178,31 @@ async function main() {
             },
           })
 
-          // Add questions to leaf variables
+          // Add questions to leaf variables with new features
+          await prisma.variableQuestion.upsert({
+            where: { id: `scope1-reduction-${lever.id}` },
+            update: {},
+            create: {
+              id: `scope1-reduction-${lever.id}`,
+              variableId: scope1.id,
+              text: 'What is your Scope 1 emissions reduction target?',
+              type: 'single_select',
+              options: [
+                { text: 'No target set', absoluteScore: 0, internalScore: 0 },
+                { text: '10-20% reduction', absoluteScore: 5, internalScore: 4 },
+                { text: '20-40% reduction', absoluteScore: 8, internalScore: 7 },
+                { text: '>40% reduction', absoluteScore: 10, internalScore: 10 }
+              ],
+              required: true,
+              weightage: 2.0,
+              order: 1,
+              groupId: 'scope1-emissions',
+              isGroupLead: true,
+              requiresEvidence: true,
+              evidenceDescription: 'Please upload your Scope 1 emissions reduction strategy document'
+            },
+          })
+
           await prisma.variableQuestion.upsert({
             where: { id: `scope1-fleet-${lever.id}` },
             update: {},
@@ -189,7 +213,11 @@ async function main() {
               type: 'text',
               required: true,
               weightage: 0.6,
-              order: 1,
+              order: 2,
+              groupId: 'scope1-emissions',
+              isGroupLead: false,
+              requiresEvidence: true,
+              evidenceDescription: 'Upload fleet emissions report'
             },
           })
 
@@ -203,7 +231,36 @@ async function main() {
               type: 'text',
               required: true,
               weightage: 0.4,
-              order: 2,
+              order: 3,
+              groupId: 'scope1-emissions',
+              isGroupLead: false,
+              requiresEvidence: false,
+              evidenceDescription: null
+            },
+          })
+
+          await prisma.variableQuestion.upsert({
+            where: { id: `scope2-renewable-${lever.id}` },
+            update: {},
+            create: {
+              id: `scope2-renewable-${lever.id}`,
+              variableId: scope2.id,
+              text: 'What renewable energy sources do you use?',
+              type: 'multi_select',
+              options: [
+                { text: 'Solar', absoluteScore: 3, internalScore: 3 },
+                { text: 'Wind', absoluteScore: 3, internalScore: 3 },
+                { text: 'Hydro', absoluteScore: 2, internalScore: 2 },
+                { text: 'Geothermal', absoluteScore: 2, internalScore: 2 },
+                { text: 'Biomass', absoluteScore: 2, internalScore: 2 }
+              ],
+              required: false,
+              weightage: 1.5,
+              order: 1,
+              groupId: null,
+              isGroupLead: false,
+              requiresEvidence: false,
+              evidenceDescription: null
             },
           })
 
@@ -213,53 +270,73 @@ async function main() {
             create: {
               id: `scope2-electricity-${lever.id}`,
               variableId: scope2.id,
-              text: 'What are your purchased electricity emissions (tons CO2e)?',
-              type: 'text',
+              text: 'What percentage of electricity comes from renewable sources?',
+              type: 'single_select',
+              options: [
+                { text: '0-10%', absoluteScore: 2, internalScore: 2 },
+                { text: '10-30%', absoluteScore: 5, internalScore: 4 },
+                { text: '30-50%', absoluteScore: 7, internalScore: 6 },
+                { text: '>50%', absoluteScore: 10, internalScore: 10 }
+              ],
               required: true,
               weightage: 0.8,
-              order: 1,
-            },
-          })
-
-          await prisma.variableQuestion.upsert({
-            where: { id: `scope2-heating-${lever.id}` },
-            update: {},
-            create: {
-              id: `scope2-heating-${lever.id}`,
-              variableId: scope2.id,
-              text: 'What are your purchased heating/cooling emissions (tons CO2e)?',
-              type: 'text',
-              required: true,
-              weightage: 0.2,
               order: 2,
+              groupId: null,
+              isGroupLead: false,
+              requiresEvidence: true,
+              evidenceDescription: 'Upload renewable energy certificates or purchase agreements'
             },
           })
 
           await prisma.variableQuestion.upsert({
-            where: { id: `scope3-supply-${lever.id}` },
+            where: { id: `scope3-tracking-${lever.id}` },
             update: {},
             create: {
-              id: `scope3-supply-${lever.id}`,
+              id: `scope3-tracking-${lever.id}`,
               variableId: scope3.id,
-              text: 'What are your supply chain emissions (tons CO2e)?',
-              type: 'text',
+              text: 'Do you track Scope 3 emissions across your value chain?',
+              type: 'single_select',
+              options: [
+                { text: 'Yes, comprehensively', absoluteScore: 10, internalScore: 10 },
+                { text: 'Partially', absoluteScore: 5, internalScore: 5 },
+                { text: 'No', absoluteScore: 0, internalScore: 0 }
+              ],
               required: true,
-              weightage: 0.7,
+              weightage: 2.0,
               order: 1,
+              groupId: 'scope3-emissions',
+              isGroupLead: true,
+              requiresEvidence: true,
+              evidenceDescription: 'Upload Scope 3 emissions tracking methodology'
             },
           })
 
           await prisma.variableQuestion.upsert({
-            where: { id: `scope3-travel-${lever.id}` },
+            where: { id: `scope3-categories-${lever.id}` },
             update: {},
             create: {
-              id: `scope3-travel-${lever.id}`,
+              id: `scope3-categories-${lever.id}`,
               variableId: scope3.id,
-              text: 'What are your business travel emissions (tons CO2e)?',
-              type: 'text',
-              required: true,
-              weightage: 0.3,
+              text: 'Which Scope 3 categories do you track?',
+              type: 'multi_select',
+              options: [
+                { text: 'Purchased goods and services', absoluteScore: 2, internalScore: 2 },
+                { text: 'Capital goods', absoluteScore: 2, internalScore: 2 },
+                { text: 'Fuel and energy activities', absoluteScore: 2, internalScore: 2 },
+                { text: 'Transportation and distribution', absoluteScore: 2, internalScore: 2 },
+                { text: 'Waste generated', absoluteScore: 1, internalScore: 1 },
+                { text: 'Business travel', absoluteScore: 1, internalScore: 1 },
+                { text: 'Employee commuting', absoluteScore: 1, internalScore: 1 },
+                { text: 'Use of sold products', absoluteScore: 2, internalScore: 2 },
+                { text: 'End-of-life treatment', absoluteScore: 1, internalScore: 1 }
+              ],
+              required: false,
+              weightage: 1.5,
               order: 2,
+              groupId: 'scope3-emissions',
+              isGroupLead: false,
+              requiresEvidence: false,
+              evidenceDescription: null
             },
           })
 
