@@ -80,9 +80,73 @@ docker-compose logs -f app
 
 ## Troubleshooting
 
-1. **Database not initialized**: Check the app container logs for migration errors
-2. **Seeding fails**: Ensure the database is healthy before the app starts
-3. **Connection issues**: Verify DATABASE_URL in docker-compose.yml matches your postgres service
+### Common Issues and Solutions
+
+1. **P3005 Error - Database schema doesn't exist**
+   - This happens when migrations fail on a fresh database
+   - Solution: The updated entrypoint script handles this automatically
+   - If issue persists:
+     ```bash
+     docker-compose down -v
+     docker-compose up --build
+     ```
+
+2. **"exec: no such file or directory" Error**
+   - Caused by Windows CRLF line endings in shell scripts
+   - Already fixed in the latest code with automatic line ending conversion
+   - Manual fix if needed:
+     ```powershell
+     # On Windows, run:
+     .\fix-line-endings.ps1
+     ```
+
+3. **Database not initialized**
+   - Check the app container logs: `docker-compose logs app`
+   - Ensure PostgreSQL is healthy: `docker-compose ps`
+   - Force reset if needed:
+     ```bash
+     docker-compose down -v
+     docker system prune -a
+     docker-compose up --build
+     ```
+
+4. **Seeding fails**
+   - The updated script handles this gracefully
+   - Check if database already has data
+   - View seed logs: `docker-compose logs app | grep -i seed`
+
+5. **Connection issues**
+   - Verify DATABASE_URL in docker-compose.yml
+   - Check if PostgreSQL is running: `docker ps`
+   - Test connection:
+     ```bash
+     docker exec esg-postgres pg_isready -U esg_user -d esg_survey_db
+     ```
+
+### Troubleshooting Script
+
+Run the diagnostic script:
+```bash
+# On Linux/Mac:
+bash scripts/docker-troubleshoot.sh
+
+# On Windows (Git Bash):
+sh scripts/docker-troubleshoot.sh
+```
+
+### Complete Reset
+
+For a completely fresh start:
+```bash
+# Remove all containers and volumes
+docker-compose down -v
+
+# Remove all Docker images for this project
+docker images | grep esg | awk '{print $3}' | xargs docker rmi -f
+
+# Rebuild everything
+docker-compose up --build
+```
 
 ## Default Credentials
 

@@ -1,0 +1,13 @@
+version: '3.8'
+
+# Use this file for a completely fresh setup with a clean database
+# Run: docker-compose -f docker-compose.yml -f docker-compose.fresh.yml up --build
+
+services:
+  app:
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://esg_user:esg_password123@postgres:5432/esg_survey_db?schema=public
+      - NEXTAUTH_URL=http://localhost:3001
+      - NEXTAUTH_SECRET=your-super-secret-key-change-in-production-environment
+      - FORCE_DB_RESET=false  # Set to true to force reset the database schema
